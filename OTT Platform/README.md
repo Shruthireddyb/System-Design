@@ -1,8 +1,8 @@
-# OOT (Over-The-Top) Platform -HLD
+# OTT (Over-The-Top) Platform -HLD
 > Netflix / Prime Video / Hotstar scale video streaming platform
 
 ## 1. Overview
-OOT Platform is a microservices based video streaming system that handles 10M+ concurrent users. It handles upload, transcode, and deliver video globally with personalized recommendations.
+OTT Platform is a microservices based video streaming system that handles 10M+ concurrent users. It handles upload, transcode, and deliver video globally with personalized recommendations.
 
 ## 2. Requirements
 **Functional**
