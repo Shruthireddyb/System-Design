@@ -1,4 +1,4 @@
-#  Ticket Booking System - System Design
+#  Ticket Booking System 
 
 > A high-concurrency, distributed ticket booking platform handling 10K+ concurrent users with zero double-booking. Inspired by BookMyShow & IRCTC architecture.
 
@@ -11,31 +11,31 @@
 
 ### 1.2 Functional Requirements(FR)
 
-**FR-1: User Management (P0)**
+**FR-1: User Management**
 - User can Register/Login via Email/Phone + OTP
 - User can view booking history
 - Guest booking allowed
 
-**FR-2: Event Management (Admin) (P0)**
+**FR-2: Event Management (Admin)**
 - Admin can create Event with city, date, venue, total seats
 - Admin can define Seat Layout (A1, A2..), Seat Type (Premium/Gold/Silver)
 - Admin can set Price per seat type
 - Admin can Cancel/Reschedule event
 
-**FR-3: Search & Discovery (P0)**
+**FR-3: Search & Discovery**
 - Search by City, Date, Event Name
 - Filter by Price, Seat Type
 - Show real-time available seats count
 - Latency < 300ms
 
-**FR-4: Seat Selection - CORE (P0)**
+**FR-4: Seat Selection **
 - Real-time seat map: Available (Green), Locked (Yellow), Booked (Red)
 - User can select 1 to 6 seats per transaction
 - System LOCKS seats for 10 minutes on selection (payment window)
 - Auto-release if not paid in 10 min
 - Locked seats visible to all users in real-time via WebSocket
 
-**FR-5: Booking & Payment (P0)**
+**FR-5: Booking & Payment**
 - Payment only for locked seats
 - **Must prevent double booking** - 2 users cannot book same seat
 - Mock Payment Gateway (Razorpay/Stripe)
@@ -43,21 +43,21 @@
 - On success: Generate Booking ID / PNR
 - On failure: Release lock instantly
 
-**FR-6: Cancellation & Refund (P1)**
+**FR-6: Cancellation & Refund**
 - Cancel before cutoff time (2 hours before event)
 - Refund logic: 100%, 50%, 0% based on time
 - Cancelled seat becomes instantly available
 
-**FR-7: Waitlist (P1) - IRCTC Model**
+**FR-7: Waitlist - IRCTC Model**
 - If housefull, user can join waitlist (max 50)
 - On cancellation, auto-upgrade first waitlisted user + notify
 
-**FR-8: Notifications (P1)**
+**FR-8: Notifications**
 - Email/SMS on Confirmation, Cancellation, Waitlist Upgrade
 
 ### 1.3 Non-Functional Requirements (NFR)
 
-**NFR-1: Concurrency (MOST CRITICAL)**
+**NFR-1: Concurrency**
 - Handle 10,000 concurrent users booking same event (IPL Final)
 - Strict Consistency: If 100 seats, max 100 bookings. No overselling.
 
