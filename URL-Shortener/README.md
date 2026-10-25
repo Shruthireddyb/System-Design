@@ -35,3 +35,18 @@ GET /{short_code} -> 302 Redirect
 Location: https://example.com/very/long/url
 
 GET /api/v1/stats/{short_code} -> { "clicks": 120, "created_at": "..." }
+```
+### 4. Database Design
+
+**MySQL - Main Mapping Table**
+```sql
+CREATE TABLE url_mapping (
+  id BIGINT PRIMARY KEY, -- Snowflake ID
+  short_code VARCHAR(10) UNIQUE INDEXED,
+  long_url TEXT NOT NULL,
+  user_id BIGINT,
+  created_at TIMESTAMP,
+  expiry_at TIMESTAMP,
+  click_count BIGINT DEFAULT 0
+) PARTITION BY HASH(id);
+```
