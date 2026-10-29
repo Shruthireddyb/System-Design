@@ -50,3 +50,20 @@ CREATE TABLE url_mapping (
   click_count BIGINT DEFAULT 0
 ) PARTITION BY HASH(id);
 ```
+### 5. Design Decisions
+
+| Pattern | Principle | Why Used in URL Shortener? | What Problem It Solves | Benefit |
+| :--- | :--- | :--- | :--- | :--- |
+| **Strategy** | **OCP** - Open/Closed | `EncodingStrategy` interface for Base62, Base58, Hashids, UUID | If-else hell when adding new encoding algo. Modifying service every time. | Add new algorithm without touching existing service code. Just add new class + inject. |
+| **Factory** | **SRP** - Single Responsibility | `ShortUrlFactory` handles validation, expiry, code generation | Controller/Service doing object creation + validation + DB save = multiple reasons to change. | Creation logic isolated. Service only orchestrates. Controller stays thin. |
+| **Singleton** | **Single Instance + Thread Safety** | `SnowflakeIdGenerator`, `Base62Config` as Spring Singleton Bean | Multiple generator instances = duplicate IDs. Recreating char map per request = memory waste. | One thread-safe instance across app. No duplicates. Memory efficient. |
+
+### 6. How They Work Together
+
+| Layer | Pattern | Responsibility |
+| :--- | :--- | :--- |
+| Controller | None | Only HTTP handling |
+| Service | Uses Factory + Strategy | Orchestrates: factory.create() -> strategy.encode() -> repo.save() -> redis.set() |
+| Factory | SRP | Creates `ShortUrl` object |
+| Strategy | OCP | Decides HOW to encode |
+| Generator | Singleton | Generates unique ID once |
