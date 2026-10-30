@@ -35,3 +35,23 @@
 - As a developer, I want different limits for /api/feed and /api/posts
 - As a system, rate limiter check should be atomic across 10 servers
 ```
+## Design Decisions 
+
+### Pattern Decisions
+
+| Pattern | Why Used in Rate Limiter? | Example Code | Benefit |
+| :--- | :--- | :--- | :--- |
+| **Strategy** | Support multiple rate limiting algorithms | `RateLimitStrategy` -> `FixedWindowStrategy`, `TokenBucketStrategy`, `SlidingWindowStrategy` | Add new algorithm (e.g., Leaky Bucket) without changing filter. **OCP** |
+| **Factory** | Create strategy based on config/user tier | `RateLimiterFactory.getStrategy("PREMIUM_USER")` returns TokenBucket(1000 req/sec) | Creation logic isolated. **SRP**. Handles Free vs Paid tiers. |
+| **Singleton** | Redis connection + Token Bucket refill thread | `RedisTemplate` as Singleton bean, `BucketRefiller` as single scheduler | One connection pool. No race in refill. Thread-safe. |
+| **Chain of Responsibility** | Multiple limiters: IP -> User -> API | Request -> IP limiter -> User limiter -> Endpoint limiter | Each limiter has single reason. Can add/remove chain easily. |
+
+
+| Layer | Responsibility |
+| :--- | :--- |
+| Filter / Interceptor | Extracts user/IP, calls Factory |
+| Factory | Creates correct Strategy based on plan (Free=100/min, Pro=1000/min) |
+| Strategy | Executes `isAllowed(key)` logic using Redis |
+| Singleton Redis | Stores counters atomically |
+
+>  "Used Strategy for OCP to support multiple algorithms, Factory for SRP to handle tier-based creation, and Singleton Redis with Lua for atomic distributed limiting."
