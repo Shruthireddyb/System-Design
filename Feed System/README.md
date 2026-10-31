@@ -84,3 +84,34 @@ Client -> API Gateway -> LB
            |-> Engagement Service (Like/Comment)
 
 ```
+## Design Decisions
+
+###  Pattern Decisions (OCP, SRP)
+
+| Pattern | Why Used in Feed System? | Example | Principle |
+| :--- | :--- | :--- | :--- |
+| **Strategy** | Different Feed Ranking Strategies | `FeedRankingStrategy` -> `ChronologicalStrategy`, `PopularityStrategy`, `MLBasedStrategy` | OCP - Add new ranking algo without changing Feed Service |
+| **Factory** | Create Feed based on user type | `FeedFactory.create("CELEBRITY_FEED")` vs `NORMAL_FEED` -> decides Push vs Pull | SRP - Creation logic isolated, handles celeb special case |
+| **Singleton** | Feed Cache Manager + Snowflake Generator | `FeedCacheManager`, `IdGenerator` as Singleton bean | Single instance, thread-safe, no duplicate IDs |
+| **Observer** | New Post -> Notify Feed Services | `PostService` (Publisher) -> `FanoutService`, `SearchService`, `NotificationService` (Subscribers) | Decoupled, extensible |
+
+###  Strategy Decision
+
+| User Type | Followers | Fanout Model | How Feed Generated | Latency |
+| :--- | :--- | :--- | :--- | :--- |
+| **Normal User** | < 10K | Push on Write | Write post ID to all followers' Redis feed list at post time | Read O(1) - Fast |
+| **Celebrity** | > 10K / 1M | Pull on Read | Don't push. At read time, merge celeb posts + normal push feed | Write O(1) - Saves write storm |
+| **Hybrid Logic** | Factory Decides | `if followers > threshold -> Pull else Push` | Best of both worlds | Needs background merger |
+
+###  Scalability Decisions
+
+| Decision | Choice | Reason |
+| :--- | :--- | :--- |
+| **Feed Pagination** | Cursor-based (postId) not OFFSET | OFFSET is slow on large feeds. Cursor is O(1). |
+| **Hot Feed Cache** | Redis List: `feed:{userId}` -> [postIds] LTRIM 1000 | Keep only 1000 recent. Full feed in Cassandra. |
+| **Write Path** | Post -> Kafka -> Fanout Workers -> Redis | Async fanout via Kafka, no API blocking. |
+| **Read Path** | App -> Redis Cache -> If miss -> Cassandra -> Merge Pull | 95% hits from Redis, 5ms response. |
+| **Media** | CDN (CloudFront) for images | Reduce origin load, 10x faster. |
+
+
+> "Used Hybrid Fanout (Push for normal, Pull for celeb) to handle 1M followers without write storm, Cassandra + Redis for O(1) feed read, and Strategy pattern for OCP ranking so we can add ML ranking without changing core service."
