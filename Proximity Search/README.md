@@ -39,3 +39,29 @@ This design handles **100M POIs, 50k QPS, <100ms latency**.
 - [ Kafka ] <- Location updates from Delivery Partners (via MQTT)
       
 - [ Location Worker ] -> Updates Redis GEO + DB
+
+## Design Decisions 
+
+###  Pattern Decisions
+
+| Pattern | Why Used in Proximity Search? | Example | Principle |
+| :--- | :--- | :--- | :--- |
+| **Strategy** | Different search strategies by distance | `ProximityStrategy` -> `Nearby1kmStrategy`, `Nearby5kmStrategy`, `CityLevelStrategy` | OCP - Add 10km strategy without changing service |
+| **Factory** | Create index based on use-case | `GeoIndexFactory.getIndex("LIVE_TRACKING")` returns Redis, `HISTORY` returns Cassandra | SRP - Creation isolated |
+| **Singleton** | Redis GEO Client + Geohash Encoder | `GeoRedisClient` as Singleton | One connection pool, thread-safe |
+| **Observer** | Location update -> Notify search service | Device publishes location -> Kafka -> `ProximityService`, `AlertService`, `AnalyticsService` | Decoupled |
+
+
+###  Scalability Decisions
+
+| Decision | Choice | Reason |
+| :--- | :--- | :--- |
+| **Sharding** | By City / Geohash prefix | Query for Bangalore never hits Delhi shard. |
+| **Write Path** | Device -> MQTT -> Kafka -> Consumer -> Redis GEOADD | Async, handles burst. If Redis down, Kafka retains. |
+| **Read Path** | API -> Redis GEORADIUS -> If >50 results, filter Haversine | 95% requests served in <10ms from Redis. |
+| **Precision** | Geohash length 6 (1.2km x 0.6km) for index, 7 (150m) for alert | 6 is good for nearby, 7 for geofence alert. |
+| **Cold Start** | Cache warming from Cassandra | On Redis crash, reload last known location. |
+
+
+> "Used Redis GEO with Geohash (6-char) for O(log N) proximity search, sharded by city to avoid full scan, Kafka for async 5-sec updates, and Strategy pattern to support 1km/5km/city search without changing core service. Two-step filtering - Geohash neighbors first, then Haversine for accuracy."
+
