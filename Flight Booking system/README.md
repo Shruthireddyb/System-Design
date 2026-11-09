@@ -77,9 +77,22 @@ A scalable, transaction-safe flight booking platform with PNR generation, seat l
 - PNR lookup without login
 - Simple 3-step flow: Search -> Select -> Pay
 
-### 3. System Constraints
-- MySQL 8.0+ for transactions
-- No real payment - use Stripe test keys only
-- Single airport code standard: IATA [HYD, BLR, DEL]
-
 ---
+## Design Decisions
+
+| Decision / Pattern | Used In Flight Booking For | Why This Pattern / Choice? | SOLID / Design Principle |
+| :--- | :--- | :--- | :--- |
+| **Strategy** | Pricing - Base Fare, Dynamic Pricing, Surge, Promo Code, Student / Senior Discount | Each pricing logic is different but same interface `calculateFare()`. Add new offer without changing old code | **OCP** - Open for Extension, Closed for Modification |
+| **Strategy** | Flight Search - Cheapest, Fastest, Shortest Layover, Earliest Departure | Search algorithm changes by user filter, switch at runtime | **OCP + SRP** |
+| **Factory** | Creating Booking - `BookingFactory.create(type)` - One-Way, Round-Trip, Multi-City | Client doesn't know which Booking class to create, Factory decides by type | **SRP + OCP** - Creation logic in one place |
+| **Factory** | Payment - UPI, Card, NetBanking, Wallet, EMI - `PaymentFactory.create(method)` | Add new payment method without changing checkout code | **OCP** |
+| **Singleton** | DB Connection, Redis Client, Config Manager, Logger, Seat Lock Manager | Only one connection pool / config should exist for whole app | **SRP** - One instance controls one shared resource |
+| **Observer** | Booking Status - Booked, Payment Success, Payment Failed, Cancelled, Flight Delayed, Check-in Open | One booking event notifies many - User App, Email, SMS, Push, Airline System | **OCP + SRP** - Sender and receivers decoupled |
+| **Builder** | Building `Booking` - Passenger List, Seat, Meal, Baggage, Insurance, Coupon | Booking has 10+ optional fields, avoid `new Booking(a,b,c,d,e,f,null)` | **SRP** - Construction separate from representation |
+| **Adapter** | Airline API - IndiGo, Air India, SpiceJet + Payment Gateway - Razorpay, Stripe | Our code uses one `FlightProvider` / `PaymentService` interface, Adapter converts to vendor format | **OCP + DIP** - Depend on abstraction, not concrete API |
+| **Decorator** | Booking Add-ons - Extra Baggage + Meal + Priority Boarding + Travel Insurance | Add features dynamically like `Insurance(Meal(Booking))` without changing base Booking | **OCP + SRP** - Each feature in its own class |
+| **Repository** | `FlightRepository`, `BookingRepository`, `UserRepository`, `PassengerRepository` | Separate DB logic from business logic, easy to switch PostgreSQL to MongoDB | **SRP + DIP** - Business logic doesn't depend on DB |
+| **Facade** | `BookingFacade.bookFlight()` | One method hides - Search, Seat Lock, Payment, Confirm PNR, Notify | **SRP** - Client sees one simple interface |
+| **Command** | Book, Cancel, Reschedule, Refund, Web Check-in, Add Baggage | Each action is an object - can be queued, retried, logged, undone | **OCP + SRP** - New action = new class |
+| **Saga Pattern** | Distributed Booking - Flight Hold -> Payment -> Confirm Seat -> Issue Ticket | If Payment fails, Saga compensates - Release Seat, Refund, Cancel PNR. No partial booking | **Reliability** - No distributed transaction needed |
+| **Microservices** | User, Flight Search, Booking, Payment, Notification, Pricing Services | Scale Search 10x during festival sale, Booking stays stable | **SRP** - One service, one responsibility |
