@@ -25,27 +25,24 @@
 5. Payment Service consumes -> Call payment gateway with Idempotency-Key
 6. On success -> `payment-success` -> Order -> CONFIRMED -> `email-send` -> Notification Service
 
-## 3. Design Patterns Used:
-- Strategy:
-- PaymentObserver: Order -> Notification
-- Factory: Order creation
-- Singleton: Redis connection
+## Design Decisions
 
-## 4. Data Model
-- User: id, email, password_hash, address[]
-- Product: id, name, price, seller_id, images[], category
-- Inventory: product_id [PK], quantity, reserved, version [optimistic lock]
-- Cart: user_id -> Redis Hash { product_id: qty }
-- Order: id, user_id, total, status, PNR-like order_number [UNIQUE]
-- OrderItem: order_id, product_id, qty, price_at_purchase
-
-## 5. Scale & Handling Failure
-1. No Overselling:
-   - Inventory Service: Redis SETNX lock:product:123 with 10s TTL + MySQL FOR UPDATE
-   - On failure: Release lock via Lua script, Kafka retry 3 times
-2. Idempotency:
-   - Payment: Client sends Idempotency-Key: uuid -> Store in Redis payment:uuid -> If exists, return same result
-3. Search:Product DB -> Debezium CDC -> Kafka -> Elasticsearch indexer
-   - Cache top 1000 products in Redis
-4. Cart:
-   - Redis cluster, persistence AOF, TTL 7 days for abandoned cart -> Kafka job to send reminder
+| Decision / Pattern | Used In E-commerce For | Why This Pattern / Choice? | SOLID / Design Principle |
+| :--- | :--- | :--- | :--- |
+| **Command** | Order - `PlaceOrderCommand`, `CancelOrderCommand`, `ReturnOrderCommand`, `RefundCommand` all implement `OrderCommand.execute()` | Each order action is an object - can be queued, retried, logged, undone, audited | **OCP + SRP** - New action = new class, no change in Order Service |
+| **Strategy** | Payment Strategy - UPI, Card, NetBanking, COD, Wallet, EMI | Payment method changes at runtime, same checkout flow | **OCP** - Add new payment without changing Checkout |
+| **Strategy** | Pricing Strategy - Regular Price, Discount, Coupon, Flash Sale, Membership Price | Price logic changes by offer, user type, festival | **OCP + SRP** |
+| **Strategy** | Shipping Strategy - Standard, Express, Same Day, Store Pickup | Shipping cost / time logic separate per method | **OCP** |
+| **Factory** | Payment Factory - `PaymentFactory.create(UPI / Card / COD)` | Client sends payment type, Factory returns correct Payment class | **SRP + OCP** - Creation logic in one place |
+| **Factory** | Notification Factory - Email, SMS, Push, WhatsApp | Same order event creates different notification type | **OCP** |
+| **Singleton** | DB Connection, Redis Client, Kafka Producer, Config Manager, Cart Manager | Only one instance should control shared resource, avoid duplicate connections | **SRP** - One instance controls one shared resource |
+| **Observer** | Order Events - Order Placed, Payment Success, Order Shipped, Order Delivered | One event notifies many - Inventory, Email, SMS, Analytics, Seller Dashboard, Recommendation | **OCP + SRP** - Sender and receivers decoupled |
+| **Builder** | Building `Order` - OrderId, UserId, Items, Address, Payment, Coupon, Shipping, Total | Order has 15+ fields, many optional, avoid `new Order(a,b,c,d...)` | **SRP** - Construction separate from representation |
+| **Adapter** | Payment Gateway - Razorpay, Stripe, Paytm, PhonePe | Our code uses one `PaymentGateway` interface, Adapter converts to vendor format | **OCP + DIP** - Depend on abstraction, not vendor |
+| **Adapter** | Shipping Provider - Delhivery, Ekart, BlueDart | Same interface, different provider APIs | **OCP + DIP** |
+| **Decorator** | Product Price - Base Price + Discount + Coupon + Tax + Delivery Charge | Add features dynamically like `Tax(Discount(BasePrice))` without changing base | **OCP + SRP** - Each feature in its own class |
+| **Repository** | `ProductRepository`, `OrderRepository`, `UserRepository`, `CartRepository` | Separate DB logic from business logic, easy to switch PostgreSQL to MongoDB | **SRP + DIP** - Business logic doesn't depend on DB |
+| **Facade** | `CheckoutFacade.checkout()` | One method hides - Validate Cart, Check Stock, Apply Coupon, Process Payment, Create Order, Send Notification | **SRP** - Client sees one simple interface |
+| **State Pattern** | Order State - PENDING, PAID, CONFIRMED, SHIPPED, OUT_FOR_DELIVERY, DELIVERED, CANCELLED, RETURNED | Each state has its own behaviour, no big `if-else` for order status | **OCP + SRP** |
+| **Template Method** | `BasePayment.process()` - Validate -> Deduct -> Confirm -> Log | Common payment flow fixed, only `doPay()` changes per gateway | **OCP** - Reuse common code |
+| **Microservices** | User Service, Product Service, Cart Service, Order Service, Payment Service, Inventory Service, Notification Service, Search Service | Scale Product Search 10x during Big Billion Days, Payment stays stable | **SRP** - One service, one responsibility |
