@@ -1,4 +1,4 @@
-# Feed System - System Design - HLD
+# Feed System - HLD
 
 > Scalable News Feed / Instagram Home Feed - Hybrid Fanout, Ranking, Real-time Timeline. Interview-ready with requirements, API design, DB schema, and tradeoffs.
 
@@ -30,60 +30,6 @@
 5. **Scalable:** Support 300M users, 10M DAU, 1M new posts/day
 6. **Durable:** No post loss - MySQL as source of truth, Kafka with ack=all
 
-#### C. Out of Scope 
-- Direct Messaging - Separate chat system
-- Full text search on posts - Separate search service (Elasticsearch)
-- Video transcoding - Separate media service
-- Push notifications - Separate notification service (Kafka consumer)
-
-#### D. Assumptions & User Stories
-```
-Assumption:
-- Avg user follows 200 users
-- Celebrity user has 10M followers
-- Avg user opens feed 10 times/day
-- Post size ~ 1KB text + 500KB image URL
-
-User Stories:
-- As a user, I post a photo -> my followers see it in feed in 5 sec
-- As a user with 10M followers, I post -> system shouldn't crash
-- As a user, I scroll feed -> next 20 posts load instantly from cache
-```
-
-
-### 2. LLD - Class Design
-
-```java
-User { Long id; String name; boolean isCelebrity; int followersCount }
-Post { Long id; Long userId; String content; String mediaUrl; PostType type; LocalDateTime createdAt }
-Follow { Long followerId; Long followeeId; }
-FeedItem { Long postId; Long authorId; long timestamp; } // For timeline
-Like { Long userId; Long postId; }
-
-// Services
-FeedService.getFeed(userId, cursor, size)
-PostService.createPost(post) -> publishes Kafka event
-FanoutService.fanoutPost(post) -> core logic
-RankingStrategy.rank(feedItems) -> chronological / EdgeRank
-```
-
-**Patterns Used:**
-- Strategy: RankingStrategy (Time vs Relevance)
-- Factory: PostFactory (Text/Image/Video)
-- Observer: PostCreated -> Fanout
-
-### 3. HLD - Architecture
-
-```
-Client -> API Gateway -> LB
-           |-> User Service (MySQL)
-           |-> Post Service (MySQL + S3 + Kafka Producer)
-           |-> Graph Service (Follow/Unfollow - MySQL/Cassandra)
-           |-> Feed Service (Redis ZSET + Cassandra) - READ PATH
-           |-> Fanout Service (Kafka Consumer) - WRITE PATH
-           |-> Engagement Service (Like/Comment)
-
-```
 ## Design Decisions
 
 ###  Pattern Decisions (OCP, SRP)
@@ -115,3 +61,22 @@ Client -> API Gateway -> LB
 
 
 > "Used Hybrid Fanout (Push for normal, Pull for celeb) to handle 1M followers without write storm, Cassandra + Redis for O(1) feed read, and Strategy pattern for OCP ranking so we can add ML ranking without changing core service."
+
+## Concurrency Handling 
+
+This feed system handles concurrent reads, writes, likes, comments, and follows
+without data loss, duplicate posts, or inconsistent counts.
+
+### 1. Problems We Handle
+- Multiple users liking / commenting on same post at same time
+- Same user double-clicking Like / Follow (duplicate requests)
+- Feed fan-out: One post by a user with 10K followers
+- Read-while-write: User sees feed while new post is being published
+- Counter drift: Like count != actual rows in DB
+
+### 2. Idempotency - No Duplicate Actions
+Every write request must include an `Idempotency-Key` (UUID).
+
+- Like, Comment, Follow, Post creation are idempotent
+- If same key is retried, server returns cached response, does not re-execute
+- DB has unique constraints to enforce it at last level:
