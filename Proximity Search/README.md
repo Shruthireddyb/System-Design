@@ -65,3 +65,42 @@ This design handles **100M POIs, 50k QPS, <100ms latency**.
 
 > "Used Redis GEO with Geohash (6-char) for O(log N) proximity search, sharded by city to avoid full scan, Kafka for async 5-sec updates, and Strategy pattern to support 1km/5km/city search without changing core service. Two-step filtering - Geohash neighbors first, then Haversine for accuracy."
 
+## Concurrency Handling
+
+### Core Problem
+- 1000s of users searching "near me" at same time
+- Drivers / users updating location every 2-3 sec
+- Same location data read + write simultaneously
+
+### How We Handle It
+
+**1. Location Updates**
+- Location updates are not written to DB directly
+- Sent to Queue (Kafka / SQS) -> Worker updates in batch
+- Last-write-wins using `timestamp` - old update ignored
+
+**2. No DB Locking For Reads**
+- Proximity search is read-heavy, so we never lock on read
+- Use Geohash / S2 Cell index for fast search
+- Search hits Redis cache first, DB only on cache miss
+
+**3. Atomic Updates**
+- Driver location stored in Redis Geo: `GEOADD drivers lon lat id`
+- `GEOADD` is atomic - no race condition even with 10k concurrent updates
+
+**4. Idempotency**
+- Every location update has `user_id + timestamp`
+- Duplicate / delayed update with old timestamp is dropped
+
+**5. Partitioning / Sharding**
+- World divided by Geohash (e.g. `u4pruyd`)
+- Each shard handles only its area
+- One hot area (e.g. MG Road) does not block other areas
+
+**6. Optimistic Locking**
+- For booking / assigning nearest driver, use `version` check
+- If 2 users try to book same driver:
+  ```sql
+  UPDATE drivers SET status='BOOKED', version=version+1
+  WHERE id=? AND version=? AND status='FREE'
+  
