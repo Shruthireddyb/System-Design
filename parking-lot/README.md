@@ -36,3 +36,43 @@ Design a Parking Lot System for a 3-floor mall with 500 spots. Supports CAR, BIK
 | **12** | **Payment Location** | 1. At Entry 2. At Exit 3. At Floor | **At Exit Gate (Pay and Exit)** | Real-world flow, allows hourly calc |
 
  "For production replace Repository with DB + Redis GEO"
+
+## Concurrency Handling
+
+### Problem
+- 2 cars try to book same spot at same time
+- 2 entries at same time -> double booking / overcount
+
+### Solution
+
+**1. DB Level - Pessimistic Locking**
+- Use `SELECT ... FOR UPDATE` on spot row
+- One transaction locks spot, other waits
+- Use for: `bookSpot()`
+
+**2. Optimistic Locking**
+- Add `@Version` column in Spot table
+- If version changed, throw `OptimisticLockException` -> Retry
+- Use for: High read, low conflict
+
+**3. Distributed Lock - Redis**
+- `SET spot:101 NX PX 5000` - Only 1 server gets lock
+- Release with Lua script - only owner can unlock
+- Use for: Multi-instance deployment
+
+**4. Atomic Counter - Entry Gate**
+- `AtomicInteger` / Redis `INCR` / `DECR` for available slots
+- Never do `read -> +1 -> write` in code - race condition
+
+**5. Idempotency**
+- Client sends `Idempotency-Key: UUID`
+- Same key + same request = return same ticket, no duplicate booking
+
+**6. Queue**
+- Booking requests go to Kafka Queue
+- Process 1 by 1 in order - no race
+
+### What We Used
+- `FOR UPDATE` + `@Version` for Spot booking
+- Redis Lock for Payment + Booking
+- Idempotency Key for Retry safety
