@@ -52,3 +52,45 @@ Non-Functional:
 | **Seat Price** | Price in Show_Seat, not Seat | Same seat price differs for Morning vs Night show, Weekend |
 | **Indexes** | Composite Index on (show_id, status) | Query `findAvailableSeatsByShowId` is 95% of traffic |
 | **Idempotency Key** | booking table has idempotency_key | User double-clicks PAY - prevent double booking |
+
+## Concurrency Handling
+
+### 1. Problem
+- Multiple users try to book same seat at same time
+- Risk of double booking and payment duplication
+
+### 2. Seat Locking
+- Seat is temporarily locked for 5-10 mins on selection
+- Locked seats shown as unavailable to others
+- Lock stored in Redis with TTL
+- Lock auto-released on timeout or payment failure
+
+### 3. Database Locking
+- Use `SELECT ... FOR UPDATE` for seat reservation
+- Use `version` column for optimistic locking
+- Booking fails if seat version changed
+
+### 4. Atomic Booking
+- Seat reserve + Payment + Booking in one transaction
+- Rollback all changes on any failure
+- Use `SERIALIZABLE` isolation for booking flow
+
+### 5. Idempotency
+- Each booking request has unique `idempotency_key`
+- Retry with same key returns same booking
+- Prevents duplicate booking on network retry
+
+### 6. Distributed Lock
+- Use Redis `SETNX` / Redlock for multi-server setup
+- Only one server can lock a seat at a time
+
+### 7. Queue & Rate Limiting
+- High traffic requests handled via queue
+- Prevents DB overload during popular show sales
+- Rate limit per user to prevent bot booking
+
+### 8. Cache Handling
+- Seat availability cached in Redis
+- Cache updated immediately after booking
+- No stale seat data shown to user
+  
