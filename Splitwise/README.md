@@ -46,3 +46,48 @@ We need a system like Splitwise to manage groups, add expenses, track balances, 
 | P-11 | Command | `SettleUpCommand`, `AddExpenseCommand` | Encapsulate Request As Object For Undo / Retry | Useful For Kafka Retry, Audit |
 | P-12 | Template Method | `BaseService` With `Validate -> Process -> Publish Event` | Same Flow For All Services | Avoid Duplication |
 
+## Concurrency Handling
+
+### 1. Problem
+- Two users add / settle same expense at same time
+- Risk of double counting, wrong balance, duplicate settlement
+
+### 2. Balance Update Locking
+- Lock on `group_id` or `user_pair` before updating balance
+- Use `SELECT ... FOR UPDATE` on balance row
+- Only one transaction updates balance at a time
+
+### 3. Optimistic Locking
+- Use `version` column on `expense` and `balance` tables
+- Reject update if version changed
+- Client retries with latest balance
+
+### 4. Atomic Transaction
+- Expense create + Balance update + Activity log in one transaction
+- Rollback all changes on any failure
+- No partial expense saved
+
+### 5. Idempotency
+- Each expense request has unique `idempotency_key`
+- Retry with same key returns same expense
+- Prevents duplicate expense on network retry
+
+### 6. Distributed Lock
+- Use Redis `SETNX` / Redlock on `group:{group_id}` or `pair:{user1}_{user2}`
+- Prevents race across multiple servers
+
+### 7. Settle Up Safety
+- Settle Up uses transaction + lock on both users balances
+- Check balance again before settling
+- Prevents over-settlement and negative balance
+
+### 8. Event Ordering
+- Use queue for expense updates in same group
+- Process expenses sequentially per group
+- Final balance always consistent
+
+### 9. Cache Handling
+- Balance cached in Redis
+- Cache updated only after DB commit
+- Cache invalidated on expense edit / delete
+  
